@@ -231,6 +231,11 @@ class ModularIndexing(sympy.Function):
         if isinstance(base, FloorDiv):
             return ModularIndexing(base.args[0], base.args[1] * divisor, modulus)
 
+        # This case happens when computing ValueRanges
+        # scipy.Wild.is_finite returns None...
+        if base.is_finite is False and divisor != 0 and modulus != 0:
+            return base
+
 
 class CleanDiv(FloorDiv):
     """
