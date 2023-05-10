@@ -420,6 +420,14 @@ class FXGraphExtractor(abc.ABC):
                 diagnostic_context, module
             ).run(*fx_module_args)
 
+        # This pass must be right before export to onnxscript.
+        # Group nodes into subgraphs within `call_module` node.
+        # Note: Reason it needs to be last pass is other fx passes (some are from
+        # outside of exporter) may not be aware of `call_module`. There may be the
+        # assumption that all nodes are flattened. Otherwise, this pass should be free
+        # to move to anywhere earlier in the pipeline.
+        module = passes.Modularize(diagnostic_context, module).run(*fx_module_args)
+
         # We want to pass list of ints and floats to TorchScript graph correctly
         # in _export_fx_to_ts, so we must disable FakeTensorMode. Otherwise, graph may
         # receive FakeTensor and results runtime error. In addition, TorchScript-based
