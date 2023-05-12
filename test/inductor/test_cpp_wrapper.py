@@ -95,6 +95,12 @@ if RUN_CPU:
         #     test_mkldnn_pattern_matcher.TestPaternMatcher(),
         #     slow=True,
         # ),
+        # BaseTest(
+        #     "test_conv2d_binary",
+        #     "",
+        #     test_mkldnn_pattern_matcher.TestPaternMatcher(),
+        #     True,
+        # ),
         BaseTest("test_index_put_deterministic_fallback"),
         BaseTest("test_int_div", "", test_cpu_repro.CPUReproTests()),
         BaseTest("test_linear1"),
