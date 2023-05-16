@@ -1285,7 +1285,9 @@ def create_joint(
             warnings.filterwarnings(
                 "ignore", "Anomaly Detection has been enabled."
             )
-            with torch.autograd.detect_anomaly(check_nan=False):
+            with torch.autograd.set_multithreading_enabled(
+                False
+            ), torch.autograd.detect_anomaly(check_nan=False):
                 return inner_fn(*args)
 
     return inner_fn_with_anomaly
@@ -1372,7 +1374,9 @@ def create_functionalized_graph(
         # Setup the wrapper for functionalization of rng ops
         helper, args = create_functionalized_rng_ops_wrapper(helper, args, trace_joint)
 
-    with enable_python_dispatcher():
+    with torch.autograd.set_multithreading_enabled(
+        False
+    ), enable_python_dispatcher():
         fx_g = make_fx(helper, decomposition_table=aot_config.decompositions)(*args)
 
     return fx_g
