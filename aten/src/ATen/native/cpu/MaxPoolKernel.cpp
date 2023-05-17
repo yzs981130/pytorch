@@ -159,7 +159,7 @@ compute_internal(
         }
         for (; d2 < size; d2++) {
           int64_t index = id * input_height * input_width + ih * input_width + iw;
-          opmath_t val = opmath_t(in[d2]);
+          opmath_t val = up_scale<scalar_t>(in[d2]);
           int64_t maxindex = ind[d2];
           opmath_t maxval = max_ptr[d2];
 
@@ -178,8 +178,11 @@ compute_internal(
     Vec max_bvec = convert_from_float<scalar_t>(max_fvec0, max_fvec1);
     max_bvec.store(out_data + d3);
   }
-  for (; d3 < size; d3++) {
-    out_data[d3] = scalar_t(max_ptr[d3]);
+  if (d3 < size) {
+    fVec max_fvec0 = fVec::loadu(max_ptr + d3, (size - d3) > fVec::size() ? fVec::size() : (size - d3));
+    fVec max_fvec1 = fVec::loadu(max_ptr + d3 + fVec::size(), (size - d3) > fVec::size() ? (size - d3 - fVec::size()) : 0);
+    Vec max_bvec = convert_from_float<scalar_t>(max_fvec0, max_fvec1);
+    max_bvec.store(out_data + d3, size - d3);
   }
 }
 
@@ -270,7 +273,7 @@ void cpu_max_pool(
               for (int64_t ih = ih0; ih < ih1; ih += dilationH) {
                 for (int64_t iw = iw0; iw < iw1; iw += dilationW) {
                   int64_t index = id * input_height * input_width + ih * input_width + iw;
-                  opmath_t val = input_ptr[index];
+                  opmath_t val = up_scale<scalar_t>(input_ptr[index]);
                   if ((val > maxval) || std::isnan(val)) {
                     maxval = val;
                     maxindex = index;
@@ -281,7 +284,7 @@ void cpu_max_pool(
 
             // set output to local max and store location of max
             int64_t i = od * output_height * output_width + oh * output_width + ow;
-            output_ptr[i] = scalar_t(maxval);
+            output_ptr[i] = down_scale<scalar_t>(maxval);
             indices_ptr[i] = maxindex;
           }
         }
@@ -468,7 +471,9 @@ void cpu_max_pool_backward(
             int64_t maxindex = indices_ptr[index];
             if (maxindex != -1) {
               // update gradient
-              grad_input_ptr[maxindex] += grad_output_ptr[index];
+              grad_input_ptr[maxindex] = down_scale<scalar_t>(
+                  up_scale<scalar_t>(grad_input_ptr[maxindex]) +
+                  up_scale<scalar_t>(grad_output_ptr[index]));
             }
           }
         }
@@ -529,7 +534,9 @@ void cpu_max_pool_backward_channels_last(
             for (int64_t c = 0; c < channels; c++) {
               int64_t maxindex = ind[c];
               if (maxindex != -1) {
-                grad_input_ptr[maxindex * channels + c] += gout[c];
+                grad_input_ptr[maxindex * channels + c] = down_scale<scalar_t>(
+                    up_scale<scalar_t>(gout[c]) +
+                    up_scale<scalar_t>(grad_input_ptr[maxindex * channels + c]));
               }
             }
           }
