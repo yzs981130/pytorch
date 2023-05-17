@@ -11,7 +11,6 @@ from torch import Tensor
 from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._decomp.decompositions import pw_cast_for_opmath
 from torch._decomp.decompositions_for_rng import extra_random_decomps
-from torch.utils._mode_utils import no_dispatch
 
 from . import config, utils
 
@@ -171,6 +170,13 @@ def pad_addmm(input, mat1, mat2, m_padded_length, k_padded_length, n_padded_leng
 
 
 def should_pad_bench(mat1, mat2, op, input=None):
+    try:
+        return should_pad_bench_impl(mat1, mat2, op, input=input)
+    except Exception as e:
+        raise Exception("error padding") from e
+
+
+def should_pad_bench_impl(mat1, mat2, op, input=None):
     if not utils.has_triton():
         return False
 
@@ -183,7 +189,13 @@ def should_pad_bench(mat1, mat2, op, input=None):
         fast_flush=True,
     )
 
-    with no_dispatch():
+    def randn_like(t):
+        tmp = torch.empty_strided(
+            size=t.shape, stride=t.stride(), dtype=t.dtype, device=t.device
+        )
+        return torch.randn_like(tmp)
+
+    with torch.utils._python_dispatch._disable_current_modes():
         if op is torch.ops.aten.mm or op is torch.ops.aten.addmm:
             m_padded_length = get_padded_length(mat1.shape[0], get_alignment_size(mat1))
             k_padded_length = get_padded_length(mat1.shape[1], get_alignment_size(mat1))
@@ -198,8 +210,11 @@ def should_pad_bench(mat1, mat2, op, input=None):
         if m_padded_length == k_padded_length == n_padded_length == 0:
             return False
 
-        mat1 = torch.randn_like(mat1)
-        mat2 = torch.randn_like(mat2)
+        if mat1.layout != torch.strided or mat2.layout != torch.strided:
+            return False
+
+        mat1 = randn_like(mat1)
+        mat2 = randn_like(mat2)
         warmup = 5
         rep = 100
         if op is torch.ops.aten.bmm or op is torch.ops.aten.mm:
@@ -208,18 +223,18 @@ def should_pad_bench(mat1, mat2, op, input=None):
             )
         else:
             if input is not None:
-                input = torch.randn_like(input)
+                input = randn_like(input)
             ori_time = do_bench(
                 lambda: op(input, mat1, mat2),
             )
 
-        mat1_pad = torch.randn_like(mat1)
-        mat2_pad = torch.randn_like(mat2)
+        mat1_pad = randn_like(mat1)
+        mat2_pad = randn_like(mat2)
 
         if op is torch.ops.aten.addmm:
             input_pad = None
             if input is not None and input.is_cuda:
-                input_pad = torch.randn_like(input)
+                input_pad = randn_like(input)
             pad_time = do_bench(
                 lambda: pad_addmm(
                     input_pad,
