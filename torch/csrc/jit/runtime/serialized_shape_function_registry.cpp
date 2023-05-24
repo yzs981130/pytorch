@@ -1782,6 +1782,7 @@ def conv_forwards(input: List[int],
     output_padding: List[int],
     groups: int) -> List[int]:
   has_dilation = torch.gt(torch.len(dilation), 0)
+  has_output_padding = torch.gt(torch.len(output_padding), 0)
   dim = torch.len(input)
   output_size = annotate(List[int], [])
   if transposed:
@@ -1789,27 +1790,35 @@ def conv_forwards(input: List[int],
   else:
     weight_output_channels_dim = 0
   _0 = torch.append(output_size, input[0])
-  _1 = torch.append(output_size, weight[weight_output_channels_dim])
+  if transposed:
+    _1 = torch.append(output_size, torch.mul(weight[weight_output_channels_dim], groups))
+  else:
+    _1 = torch.append(output_size, weight[weight_output_channels_dim])
   for _2 in range(torch.__range_length(2, dim, 1)):
     d = torch.__derive_index(_2, 2, 1)
     if has_dilation:
       dilation_ = dilation[torch.sub(d, 2)]
     else:
       dilation_ = 1
+    if has_output_padding:
+      output_padding_ = output_padding[torch.sub(d, 2)]
+    else:
+      output_padding_ = 0
     if transposed:
       kernel = torch.mul(dilation_, torch.sub(weight[d], 1))
       _3 = torch.mul(torch.sub(input[d], 1), stride[torch.sub(d, 2)])
       _4 = torch.mul(padding[torch.sub(d, 2)], 2)
       _5 = torch.add(torch.sub(_3, _4), kernel)
-      _6 = torch.append(output_size, torch.add(_5, 1))
+      _6 = torch.add(_5, output_padding_)
+      _7 = torch.append(output_size, torch.add(_6, 1))
     else:
-      _7 = torch.mul(dilation_, torch.sub(weight[d], 1))
-      kernel0 = torch.add(_7, 1)
-      _8 = input[d]
-      _9 = torch.mul(padding[torch.sub(d, 2)], 2)
-      _10 = torch.sub(torch.add(_8, _9), kernel0)
-      _11 = torch.floordiv(_10, stride[torch.sub(d, 2)])
-      _12 = torch.append(output_size, torch.add(_11, 1))
+      _8 = torch.mul(dilation_, torch.sub(weight[d], 1))
+      kernel0 = torch.add(_8, 1)
+      _9 = input[d]
+      _10 = torch.mul(padding[torch.sub(d, 2)], 2)
+      _11 = torch.sub(torch.add(_9, _10), kernel0)
+      _12 = torch.floordiv(_11, stride[torch.sub(d, 2)])
+      _13 = torch.append(output_size, torch.add(_12, 1))
   return output_size
 
 )=====")
@@ -1833,11 +1842,15 @@ def conv_forwards(input: List[int],
     dilation0 = [1, 1]
   else:
     dilation0 = unchecked_cast(List[int], dilation)
+  if torch.__is__(output_padding, None):
+    output_padding0 = [0, 0]
+  else:
+    output_padding0 = unchecked_cast(List[int], output_padding)
   has_dilation = torch.gt(torch.len(dilation0), 0)
   dim = torch.len(input)
   output_size = annotate(List[int], [])
   _0 = torch.append(output_size, input[0])
-  _1 = torch.append(output_size, weight[1])
+  _1 = torch.append(output_size, torch.mul(weight[1], groups))
   for _2 in range(torch.__range_length(2, dim, 1)):
     d = torch.__derive_index(_2, 2, 1)
     if has_dilation:
@@ -1848,7 +1861,8 @@ def conv_forwards(input: List[int],
     _3 = torch.mul(torch.sub(input[d], 1), stride0[torch.sub(d, 2)])
     _4 = torch.mul(padding0[torch.sub(d, 2)], 2)
     _5 = torch.add(torch.sub(_3, _4), kernel)
-    _6 = torch.append(output_size, torch.add(_5, 1))
+    _6 = torch.add(_5, output_padding0[torch.sub(d, 2)])
+    _7 = torch.append(output_size, torch.add(_6, 1))
   return output_size
 
 )=====")
