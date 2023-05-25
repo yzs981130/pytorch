@@ -4,10 +4,13 @@ import unittest
 from unittest.mock import patch
 import torch
 from torch._C import FileCheck
+# for some reason importing functional collectives after dynamo breaks collectives handling!
+import torch.distributed._functional_collectives as _functional_collectives
 import torch._dynamo
 import torch._dynamo.test_case
 from torch._dynamo.utils import same
 from torch._dynamo.testing import CompileCounter
+from torch.distributed.distributed_c10d import GroupMember
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing._internal.common_distributed import (
     DynamoDistributedSingleProcTestCase,
@@ -20,10 +23,6 @@ from torch._inductor.compile_fx import compile_fx as inductor_compile_fx
 from torch.testing._internal.common_utils import TEST_WITH_ROCM
 from torch._inductor.utils import has_triton, run_and_get_triton_code
 import torch._dynamo.logging
-
-# LOL if you don't remember to import this, then the op isn't registered and it hits
-# the no-op C++ kernel that i am forced to implement despite not using it
-import torch.distributed._functional_collectives as _functional_collectives
 
 @requires_nccl()
 class TestCollectivesMultiProc(DynamoDistributedMultiProcTestCase):
@@ -356,6 +355,23 @@ class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
         self.assertEqual(counter.frame_count, 1)
 
         # should test more precisely, but the 2 is supposed to be (all_gather, wait)
+        self.assertEqual(counter.op_count, 2)
+        self.assertTrue(same(out, correct))
+
+    def test_dynamo_trace_all_gather_tensor_pg(self):
+
+        def func(inp, *, pg):
+            ar = _functional_collectives.all_gather_tensor(inp, 0, pg)
+            return ar
+
+        inputs = torch.ones(4, 4, device=self.device)
+        counter = CompileCounter()
+        compiled = torch.compile(func, backend=counter, fullgraph=True)
+        out = compiled(inputs, pg=GroupMember.WORLD)
+        correct = func(inputs, pg=GroupMember.WORLD)
+        self.assertEqual(counter.frame_count, 1)
+
+        # should test more precisely, but the 2 is supposed to be (all_reduce, wait)
         self.assertEqual(counter.op_count, 2)
         self.assertTrue(same(out, correct))
 
