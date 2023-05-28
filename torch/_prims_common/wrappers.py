@@ -5,12 +5,13 @@ from torch._prims_common import (
     TensorLike,
     TensorLikeType,
     ShapeType,
+    StrideType,
     ELEMENTWISE_TYPE_PROMOTION_KIND,
 )
 import torch._prims_common as utils
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
-from typing import Callable, Sequence, Tuple, NamedTuple, overload
+from typing import Callable, Sequence, Tuple, NamedTuple, Optional, overload
 import inspect
 from functools import wraps
 import warnings
@@ -157,9 +158,17 @@ def _resize_output_check(out: TensorLikeType, shape: ShapeType):
 
 
 # TODO: handle tuples of tensors
-def _maybe_resize_out(out: TensorLikeType, shape: ShapeType):
+def _maybe_resize_out(
+    out: TensorLikeType,
+    shape: ShapeType,
+    stride: Optional[StrideType] = None,
+    is_copy: bool = False
+) -> TensorLikeType:
     if _resize_output_check(out, shape):
-        return out.resize_(shape)
+        out = out.resize_(shape)
+        if stride is not None and not is_copy:
+            out = out.as_strided_(shape, stride)
+        return out
     else:
         return out
 
@@ -191,7 +200,7 @@ def _safe_copy_out(
     return copy_to.copy_(copy_from)
 
 
-def out_wrapper(*out_names: str, exact_dtype: bool = False):
+def out_wrapper(*out_names: str, exact_dtype: bool = False, is_copy: bool = False):
     is_tensor = len(out_names) == 0
     assert is_tensor or len(out_names) >= 2
 
@@ -251,7 +260,7 @@ def out_wrapper(*out_names: str, exact_dtype: bool = False):
                 if is_tensor:
                     assert isinstance(out, TensorLike)
                     # These two operations are done in-place
-                    _maybe_resize_out(out, result.shape)
+                    _maybe_resize_out(out, result.shape, result.stride(), is_copy=is_copy)
                     _safe_copy_out(copy_from=result, copy_to=out, exact_dtype=exact_dtype)  # type: ignore[arg-type]
                 else:
                     assert isinstance(out, Tuple)  # type: ignore[arg-type]
@@ -262,7 +271,7 @@ def out_wrapper(*out_names: str, exact_dtype: bool = False):
                     )
                     for r, o in zip(result, out):
                         # These two operations are done in-place
-                        _maybe_resize_out(o, r.shape)
+                        _maybe_resize_out(o, r.shape, r.stride(), is_copy=is_copy)
                         _safe_copy_out(copy_from=r, copy_to=o, exact_dtype=exact_dtype)  # type: ignore[arg-type]
             else:
                 out = result
