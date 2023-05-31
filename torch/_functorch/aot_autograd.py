@@ -2993,9 +2993,24 @@ def aot_dispatch_autograd(flat_fn, flat_args: List[Any], aot_config: AOTConfig, 
                 if CompiledFunction.compiled_bw is None:
                     assert all(a is not None for a in all_args)
                     context = disable_autocast_manager if disable_amp else nullcontext
+
+                    placeholder_list = fx_placeholder_vals(bw_module)
+
+                    # saved activations can have different stride to eager if
+                    # the compiler does layout optimization. We should restride the
+                    # tensor passed in for compiling the backward graph using the
+                    # saved tensor's stride.
+                    for i in range(len(placeholder_list)):
+                        ph_arg = placeholder_list[i]
+                        real_arg = all_args[i]
+                        if not isinstance(ph_arg, torch.Tensor):
+                            continue
+                        if ph_arg.stride() != real_arg.stride():
+                            placeholder_list[i] = ph_arg.as_strided(ph_arg.size(), real_arg.stride())
+
                     with tracing(saved_context), context(), track_graph_compiling(aot_config, "backward"):
                         CompiledFunction.compiled_bw = aot_config.bw_compiler(
-                            bw_module, fx_placeholder_vals(bw_module)
+                            bw_module, placeholder_list
                         )
 
                 ctx.maybe_clear_saved_tensors()
