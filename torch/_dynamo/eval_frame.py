@@ -872,6 +872,8 @@ def export(
         set aten_graph=True to see the effect. By default, this flag will be false.
 
         fake_mode (fake_tensor.FakeTensorMode): Use this fake_mode instead of creating an internal one.
+        Useful during symbolic tracing, when user input is already fakefied. Implies free fake tensors
+        are allowed on `make_fx`.
 
         **kwargs: Arbitrary keyword arguments to be passed to the function f.
 
@@ -904,6 +906,9 @@ def export(
     out_guards = None
     graph_captured_input = None
     graph_captured_result: Optional[Tuple[torch.Tensor, ...]] = None
+    _allow_fake_constant: bool = (
+        fake_mode is not None
+    )  # Allow fake constants during symbolic tracing
 
     def produce_matching(source_args, candidate_args):
         matched_elements_positions = []
@@ -1051,6 +1056,7 @@ def export(
                     tracing_mode="real",
                     _allow_non_fake_inputs=True,
                     pre_dispatch=pre_dispatch,
+                    _allow_fake_constant=_allow_fake_constant,
                 )(*example_fake_inputs)
             except CondOpArgsMismatchError as e:
                 # Wrap the internal error to the user-facing error
