@@ -90,24 +90,31 @@ DECOMP_TABLE = core_aten_decompositions()
 
 def export(
     f: Callable,
-    args: Tuple[Any],
+    args: Tuple[Any] = None,
+    kwargs: Dict[str, Any] = None,
     constraints: Optional[List[Constraint]] = None,
 ) -> ExportedProgram:
     """
     Traces either an nn.Module's forward function or just a callable with PyTorch
     operations inside and produce a ExportedProgram.
 
-    Args:
-        m: the `nn.Module` or callable to trace.
+    Parameters:
+        m: The `nn.Module` or callable to trace.
 
-        args: Tracing example inputs.
+        args: A tuple of positional example inputs for tracing.
+
+        kwargs: A dict of named example inputs for tracing.
 
         constraints: A list of constraints on the dynamic arguments specifying
-            their possible range of their shapes
+            their possible range of their shapes.
 
     Returns:
         An ExportedProgram containing the traced method.
     """
+    if args is None:
+        args = ()
+    if kwargs is None:
+        kwargs = {}
     if constraints is None:
         constraints = []
 
@@ -122,6 +129,7 @@ def export(
                 constraints=constraints,
                 assume_static_by_default=True,
                 functionalize=True,
+                **kwargs,
             )
         except (ConstraintViolationError, ValueRangeError) as e:
             raise UserError(UserErrorType.CONSTRAIN_VIOLATION, str(e))
@@ -130,9 +138,9 @@ def export(
                 UserErrorType.ANTI_PATTERN,
                 f"Consider annotating your code using constrain_as_*(). {str(e)}")
 
-    flat_args, in_spec = pytree.tree_flatten(args)
+    flat_args, in_spec = pytree.tree_flatten((args, kwargs))
     out_spec = (
-        gm.graph._codegen.pytree_info.out_spec or pytree.tree_flatten(f(*args))[1]  # type: ignore[attr-defined]
+        gm.graph._codegen.pytree_info.out_spec or pytree.tree_flatten(f(*args, **kwargs))[1]  # type: ignore[attr-defined]
     )
 
     # TODO(tugsuu): Fill out signature/state_dict
