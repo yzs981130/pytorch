@@ -9,7 +9,7 @@ from torch.ao.quantization.fx.prepare import (
     _is_activation_post_process_node,
 )
 import operator
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 def _get_tensor_constant_from_node(node, m):
@@ -32,7 +32,7 @@ def _get_all_arguments(orig_args, orig_kwargs, args_schema):
 def _fold_bn_weights_into_conv_node(
     conv_node: Node,
     conv_weight_node: Node,
-    conv_bias_node: Node,
+    conv_bias_node: Optional[Node],
     bn_node: Node,
     m: GraphModule
 ) -> None:
