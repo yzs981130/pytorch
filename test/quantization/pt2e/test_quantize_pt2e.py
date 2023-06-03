@@ -135,14 +135,16 @@ class TestHelperModules:
             return self.linear2(self.linear1(x))
 
     class ConvMaxPool2d(torch.nn.Module):
-        def __init__(self):
+        def __init__(self, use_maxpool2d=True):
             super(TestHelperModules.ConvMaxPool2d, self).__init__()
             self.conv = torch.nn.Conv2d(2, 2, 1)
             self.pool = torch.nn.MaxPool2d(1, 1)
+            self.use_maxpool2d = use_maxpool2d
 
         def forward(self, x):
             x = self.conv(x)
-            x = self.pool(x)
+            if self.use_maxpool2d:
+                x = self.pool(x)
             return x
 
     class ConvWithBNRelu(torch.nn.Module):
@@ -338,18 +340,14 @@ class TestQuantizePT2E(QuantizationTestCase):
                         and node.target == torch.ops.aten.convolution.default
                     ):
                         input_act = node.args[0]
-                        assert isinstance(input_act, Node)
                         weight = node.args[1]
-                        assert isinstance(weight, Node)
                         bias = node.args[2]
-                        assert isinstance(bias, Node)
                         node.meta["quantization_annotation"] = QuantizationAnnotation(
                             input_qspec_map={
                                 input_act: act_qspec,
                                 weight: weight_qspec,
                                 bias: bias_qspec,
                             },
-                            output_qspec=act_qspec,
                             _annotated=True,
                         )
                     if (
@@ -360,7 +358,6 @@ class TestQuantizePT2E(QuantizationTestCase):
                         getitem_node = node
                         maxpool_node = getitem_node.args[0]
                         input_act = maxpool_node.args[0]
-                        assert isinstance(input_act, Node)
                         maxpool_node.meta[
                             "quantization_annotation"
                         ] = QuantizationAnnotation(
@@ -385,29 +382,50 @@ class TestQuantizePT2E(QuantizationTestCase):
             def get_supported_operators(cls) -> List[OperatorConfig]:
                 pass
 
-        m = TestHelperModules.ConvMaxPool2d()
-        x = torch.rand(1, 2, 14, 14)
-        example_inputs = (x,)
-        node_occurrence = {
-            # two for input of maxpool
-            # one for input for maxpool
-            # one for output of maxpool
-            torch.ops.quantized_decomposed.quantize_per_tensor: 4,
-            torch.ops.quantized_decomposed.dequantize_per_tensor: 4,
-        }
-        node_list = [
-            torch.ops.quantized_decomposed.dequantize_per_tensor,
-            torch.ops.quantized_decomposed.dequantize_per_tensor,
-            torch.ops.aten.convolution.default,
-            torch.ops.quantized_decomposed.quantize_per_tensor,
-            torch.ops.quantized_decomposed.dequantize_per_tensor,
-            torch.ops.aten.max_pool2d_with_indices.default,
-            torch.ops.quantized_decomposed.quantize_per_tensor,
-            torch.ops.quantized_decomposed.dequantize_per_tensor,
-        ]
-        self._test_quantizer(
-            m, example_inputs, BackendAQuantizer(), node_occurrence, node_list
-        )
+        for use_maxpool2d in [True, False]:
+            m = TestHelperModules.ConvMaxPool2d(use_maxpool2d=use_maxpool2d)
+            x = torch.rand(1, 2, 14, 14)
+            example_inputs = (x,)
+            # program capture
+            m, guards = torchdynamo.export(
+                m,
+                *copy.deepcopy(example_inputs),
+                aten_graph=True,
+            )
+            m = prepare_pt2e_quantizer(m, BackendAQuantizer())
+            m(*example_inputs)
+            m = convert_pt2e(m)
+            if use_maxpool2d:
+                node_occurrence = {
+                    # two for input of conv
+                    # one for input of maxpool
+                    # one for output of maxpool
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor): 4,
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor): 4,
+                }
+                node_list = [
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.aten.convolution.default),
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor),
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.aten.max_pool2d_with_indices.default),
+                ]
+            else:
+                # Ensure the conv has no observer inserted at output
+                node_occurrence = {
+                    # two for input of conv
+                    ns.call_function(torch.ops.quantized_decomposed.quantize_per_tensor): 2,
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor): 2,
+                }
+                node_list = [
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.quantized_decomposed.dequantize_per_tensor),
+                    ns.call_function(torch.ops.aten.convolution.default),
+                ]
+            self.checkGraphModuleNodes(
+                m, expected_node_list=node_list, expected_node_occurrence=node_occurrence
+            )
 
     def test_derived_qspec(self):
         class BackendAQuantizer(Quantizer):
