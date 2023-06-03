@@ -1650,6 +1650,18 @@ class ReproTests(torch._dynamo.test_case.TestCase):
         res = fn(y)
         self.assertTrue(same(ref, res))
 
+    def test_setitem_boolean_mask_diff(self):
+        def fn(x, b, y):
+            x = x.clone()
+            x[b] = y
+            return x
+
+        opt_fn = torch._dynamo.optimize("aot_eager")(fn)
+        x = torch.randn(4, requires_grad=True)
+        b = torch.tensor([True, False, True, False])
+        y = torch.randn(2, requires_grad=True)
+        opt_fn(x, b, y)
+
     def test_torch_tensor_ops(self):
         def fn(x):
             return torch.Tensor.abs_(x)
@@ -2082,6 +2094,44 @@ class ReproTests(torch._dynamo.test_case.TestCase):
         opt_mod = torch._dynamo.optimize("eager", nopython=True)(mod)
         args = (torch.randn(3, 4),)
         self.assertTrue(same(mod(*args), opt_mod(*args)))
+
+    def test_requires_grad_guards_with_grad_mode1(self):
+        def f(x):
+            if x.requires_grad:
+                return x + 1
+            else:
+                return x + 2
+
+        x = torch.ones(2, requires_grad=True)
+
+        f_compiled = torch.compile(f)
+        with torch.no_grad():
+            # compile an inference graph
+            f_compiled(x)
+
+        # Test: we should fail guards and recompile (even though it's still an inference graph)
+        out_ref = f(x.detach())
+        out = f_compiled(x.detach())
+
+        self.assertEqual(out_ref, out)
+        self.assertEqual(out_ref.requires_grad, out.requires_grad)
+
+    def test_requires_grad_guards_with_grad_mode2(self):
+        x = torch.ones(2, requires_grad=True)
+        x_ref = x.clone().detach().requires_grad_(True)
+
+        m = torch.nn.Linear(2, 2)
+        m_compiled = torch.compile(m)
+
+        with torch.no_grad():
+            # compile an inference graph
+            m_compiled(x)
+
+        # Test: we should fail guards and recompile a training graph
+        out_ref = m(x_ref)
+        out = m_compiled(x)
+        self.assertEqual(out_ref, out)
+        self.assertEqual(out_ref.requires_grad, out.requires_grad)
 
     def test_is_symbolic_tracing(self):
         # Ensure no graph break here
@@ -3201,6 +3251,24 @@ class ReproTests(torch._dynamo.test_case.TestCase):
         ref_exponent = torch.tensor([[0, 1, 2, 3]], dtype=torch.int32)
         self.assertEqual(ref_mantissa, mantissa)
         self.assertEqual(ref_exponent, exponent)
+
+    def test_dataclass_factory(self):
+        from dataclasses import dataclass, field
+        from typing import Any
+
+        @dataclass
+        class DClass:
+            sharding_contexts: Any = field(default_factory=list)
+            a: int = 1
+
+        def fn(x):
+            return DClass().a * x
+
+        opt_fn = torch.compile(fn, backend="eager")
+        x = torch.randn(4)
+        res = fn(x)
+        ref = opt_fn(x)
+        self.assertEqual(ref, res)
 
 
 if __name__ == "__main__":
