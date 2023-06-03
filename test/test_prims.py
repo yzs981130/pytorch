@@ -5,6 +5,7 @@ from itertools import product
 import warnings
 from warnings import catch_warnings
 import unittest
+import re
 
 import torch
 from torch.testing import make_tensor
@@ -1139,6 +1140,17 @@ $1 = torch._ops.prims.sin.default($0)""")
 
     def test_mul_complex(self):
         prims.mul(torch.randn(2), 1 + 1j)
+
+    def test_check_deprecation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.resetwarnings()
+            torch._prims_common.check(True, lambda: 'message')
+            self.assertEqual(len(w), 1)
+            warning = w[0].message
+            self.assertTrue(isinstance(warning, DeprecationWarning))
+            self.assertTrue(re.search(
+                'will be removed in the future',
+                str(warning)))
 
 
 instantiate_device_type_tests(TestPrims, globals())
