@@ -786,8 +786,8 @@ void all2all_single_equal_split(
     ncclComm_t _comm,
     at::cuda::CUDAStream& stream) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && \
-    (NCCL_MAJOR * 10 + NCCL_MINOR) >= 27
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 
   int numranks;
@@ -805,7 +805,12 @@ void all2all_single_equal_split(
   for (const auto r : c10::irange(numranks)) {
     // NCCL uses 0 byte message for synchronization
     // Avoid send/recv when message size is zero
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 13)))
+    if (true) {
+#else
     if (count != 0) {
+#endif
       NCCL_CHECK(
           ncclSend(sendbuff + r * rankdiff, count, type, r, comm, stream));
       NCCL_CHECK(
@@ -838,8 +843,8 @@ void all2all_single_unequal_split(
     ncclComm_t _comm,
     at::cuda::CUDAStream& stream) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && \
-    (NCCL_MAJOR * 10 + NCCL_MINOR) >= 27
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 
   auto type = to_nccl_data_type(_type);
@@ -850,7 +855,12 @@ void all2all_single_unequal_split(
   for (const auto r : c10::irange(numranks)) {
     // NCCL uses 0 byte message for synchronization
     // Avoid send/recv when message size is zero
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 13)))
+    if (true) {
+#else
     if (sendcounts[r] != 0) {
+#endif
       NCCL_CHECK(ncclSend(
           ((char*)sendbuff) + senddispls[r] * size,
           sendcounts[r],
@@ -859,7 +869,12 @@ void all2all_single_unequal_split(
           comm,
           stream));
     }
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 13)))
+    if (true) {
+#else
     if (recvcounts[r] != 0) {
+#endif
       NCCL_CHECK(ncclRecv(
           ((char*)recvbuff) + recvdispls[r] * size,
           recvcounts[r],
@@ -888,8 +903,8 @@ void all2all(
     ncclComm_t _comm,
     at::cuda::CUDAStream& stream) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && \
-    (NCCL_MAJOR * 10 + NCCL_MINOR) >= 27
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
   auto comm = to_nccl_comm(_comm);
 
@@ -897,7 +912,13 @@ void all2all(
   for (const auto r : c10::irange(outputTensors.size())) {
     at::Tensor& input = inputTensors[r];
     at::Tensor& output = outputTensors[r];
+
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 13)))
+    if (true) {
+#else
     if (input.numel() != 0) {
+#endif
       NCCL_CHECK(ncclSend(
           input.data_ptr(),
           input.numel(),
@@ -906,7 +927,12 @@ void all2all(
           comm,
           stream.stream()));
     }
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 13)))
+    if (true) {
+#else
     if (output.numel() != 0) {
+#endif
       NCCL_CHECK(ncclRecv(
           output.data_ptr(),
           output.numel(),
@@ -935,8 +961,8 @@ void send(
     at::cuda::CUDAStream stream,
     int dst) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && defined(NCCL_MINOR) && \
-    (NCCL_MINOR >= 7)
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 #ifndef NCCL_HAS_COMM_NONBLOCKING
   NCCL_CHECK(ncclSend(
@@ -971,8 +997,8 @@ void recv(
     at::cuda::CUDAStream stream,
     int src) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && defined(NCCL_MINOR) && \
-    (NCCL_MINOR >= 7)
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 #ifndef NCCL_HAS_COMM_NONBLOCKING
   NCCL_CHECK(ncclRecv(
@@ -1008,8 +1034,8 @@ void gather(
     at::cuda::CUDAStream& stream,
     int32_t root) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && \
-    (NCCL_MAJOR * 10 + NCCL_MINOR) >= 27
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 
   auto comm = to_nccl_comm(_comm);
@@ -1057,8 +1083,8 @@ void scatter(
     at::cuda::CUDAStream& stream,
     int32_t root) {
 #ifdef USE_NCCL
-#if defined(NCCL_MAJOR) && (NCCL_MAJOR == 2) && \
-    (NCCL_MAJOR * 10 + NCCL_MINOR) >= 27
+#if defined(NCCL_MAJOR) && \
+    ((NCCL_MAJOR > 2) || ((NCCL_MAJOR == 2) && (NCCL_MINOR > 7)))
   using namespace torch::cuda::nccl::detail;
 
   auto comm = to_nccl_comm(_comm);
