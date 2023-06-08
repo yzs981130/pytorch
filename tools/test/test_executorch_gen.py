@@ -5,10 +5,11 @@ from typing import Dict
 
 import yaml
 
-from torchgen.executorch.model import ETKernelIndex
+from torchgen.executorch.model import ETKernelIndex, ETKernelKey
 from torchgen.gen import LineLoader
 
 from torchgen.gen_executorch import (
+    ComputeCodegenUnboxedKernels,
     gen_functions_declarations,
     parse_yaml_files,
     translate_native_yaml,
@@ -411,3 +412,54 @@ TORCH_API inline bool op_1(torch::executor::RuntimeContext & context) {
         """
             in declarations
         )
+
+
+class TestComputeCodegenUnboxedKernels(unittest.TestCase):
+    def setUp(self) -> None:
+        (
+            self.native_function_no_kern,
+            _,
+        ) = NativeFunction.from_yaml(
+            {
+                "func": "custom_1::op_1() -> bool",
+                "dispatch": {"CPU": "unused_kernel_1"},
+            },
+            loc=Location(__file__, 1),
+            valid_tags=set(),
+        )
+
+        self.default_kernel_key = ETKernelKey(default=True)
+        self.default_backend_metadata = BackendMetadata(
+            "default_kernel", False, "at::native"
+        )
+        self.default_kernel_entry = (
+            self.default_kernel_key,
+            self.default_backend_metadata,
+        )
+
+    def test_codegen_unboxed_default(self) -> None:
+        selector = SelectiveBuilder.get_nop_selector()
+        use_aten_lib = False
+        entry = (self.native_function_no_kern, self.default_kernel_entry)
+
+        result = ComputeCodegenUnboxedKernels(selector, use_aten_lib)(entry)
+        # Concat used to prevent whitespace stripping
+        expected_str = (
+            """
+Kernel(
+    "custom_1::op_1",
+    "default",
+    [](torch::executor::RuntimeContext & context, EValue** stack) {
+        """
+            + """
+
+        EXECUTORCH_SCOPE_PROF("native_call_op_1");
+        bool result_ = at::native::default_kernel(context, );
+
+        *stack[0] = EValue(result_);
+    }
+),
+"""
+        )
+
+        self.assertTrue(expected_str == result)
