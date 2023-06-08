@@ -212,7 +212,7 @@ def filter_stack(stack):
     for frame in stack:
         if "convert_frame" in frame.filename:
             break
-        if "eval_frame" in frame.filename or "torch._dynamo.optimize(" in frame.line:
+        if "eval_frame" in frame.filename or (frame.line is not None and "torch._dynamo.optimize(" in frame.line):
             continue
         user_stack.append(frame)
 
