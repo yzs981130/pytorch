@@ -45,6 +45,8 @@ __all__ = [
     "ExportedProgramDeserializer",
 ]
 
+from ...fx.node import Target
+from ...fx.passes.graph_manipulation import replace_target_nodes_with
 
 log = logging.getLogger(__name__)
 
@@ -633,6 +635,76 @@ class ExportedProgramSerializer:
         )
 
 
+class GraphModuleOpUpgrader:
+    """Given model op set version number as well as compiler op set version number, do the following:
+    1. retrieve upgraders from somewhere (TorchScript API or new API).
+    2. parse it and reorder for upgrading purpose.
+    3. register old versions of operators as custom ops.
+    4. prepare upgrader passes.
+
+    In `upgrade()` API run these upgrader passes.
+
+    An example of op_upgraders:
+    {
+        "aten::div__Scalar_0_3": (                              # versioned op name
+            "div._Scalar(self: Tensor, other: Scalar)",         # old schema
+            "
+def div__Scalar_0_3(self: Tensor, other: number) -> Tensor:     # upgrader in literal string
+  if (self.is_floating_point() or isinstance(other, float)):
+    return self.true_divide_(other)
+  return self.divide_(other, rounding_mode='trunc')
+",
+        ),
+    },
+    """
+    class UpgraderPass:
+        def __init__(self, old_target: Target, new_target: Target):
+            self.old_target = old_target
+            self.new_target = new_target
+
+        def __call__(self, fx_module: GraphModule):
+            replace_target_nodes_with(fx_module, "call_function", self.old_target, "call_function", self.new_target)
+            # retrace the graph module
+
+    def __init__(
+        self,
+        compiler_opset_version: Optional[Dict[str, int]] = None,
+        model_opset_version: Optional[Dict[str, int]] = None,
+    ):
+        op_upgraders = {}  # can add a new TS API: torch._C._get_upgraders_entry_map()
+        self.compiler_opset_version = compiler_opset_version
+        self.model_opset_version = model_opset_version
+        # key is version number, value is a list of upgraders, keyed on op name
+        self.upgraders: Dict[int, List[Tuple[str, str]]] = self._parse_upgraders(op_upgraders)
+        self._register_old_ops()
+
+        self.upgrader_passes: List[GraphModuleOpUpgrader.UpgraderPass] = self._populate_passes()
+
+    def _parse_upgraders(self, op_upgraders: Dict[str, str] = None) -> Dict[int, List[Tuple[str, str]]]:
+        """reorder op_upgraders by version number."""
+        pass
+
+    def _register_old_ops(self):
+        """use torch.Library API to register old ops. Op name will be <name>_<valid_from_ver>_<valid_till_ver>. Register upgarders as CompositeImplicitAutograd kernels.
+        For example:
+
+        lib = Library("aten", "FRAGMENT")
+        lib.define(old_schema)
+
+        impl_lib = Library("aten", "IMPL")
+        impl_lib.impl("div__Scalar_0_3", div__Scalar_0_3, "CompositeImplicitAutograd")
+        """
+        pass
+
+    def _populate_passes(self) -> List[UpgraderPass]:
+        """Given a list of upgraders, loop through it from lower version to higher version and create passes for all upgraders.
+        """
+        pass
+
+    def upgrade(self, fx_module: torch.fx.GraphModule):
+        """Apply upgraders one by one on GraphModule"""
+
+
 class GraphModuleDeserializer:
     def __init__(self):
         self.serialized_name_to_node: Dict[str, torch.fx.Node] = {}
@@ -873,6 +945,10 @@ class ExportedProgramDeserializer:
             GraphModuleDeserializer()
             .deserialize(serialized_exported_program.graph_module)
         )
+        model_opset_version: Dict[str, int] = {}  # TODO(larryliu) this should be deserialized as well
+        upgrader = GraphModuleOpUpgrader(self.expected_opset_version, model_opset_version)
+        upgrader.upgrade(graph_module)
+
         state_dict = deserialize_state_dict(serialized_state_dict)
 
         # TODO(angelyi): serialize constraints
