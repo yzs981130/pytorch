@@ -72,7 +72,7 @@ class Device:
 
 @dataclass
 class SymInt(_Union):
-    as_symbol: str
+    as_symbol: Tuple[str, int]
     as_int: int
 
 
@@ -186,6 +186,12 @@ class CallSpec:
 
 
 @dataclass
+class RangeConstraint:
+    min_val: int
+    max_val: int
+
+
+@dataclass
 class GraphModule:
     graph: Graph
     signature: GraphSignature
@@ -197,3 +203,5 @@ class GraphModule:
 class ExportedProgram:
     graph_module: GraphModule
     opset_version: Dict[str, int]
+    range_constraints: Dict[str, RangeConstraint]
+    equality_constraints: List[Tuple[Tuple[str, int], Tuple[str, int]]]
