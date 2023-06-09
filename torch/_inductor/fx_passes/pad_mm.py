@@ -391,6 +391,8 @@ def pad_bmm(mat1, mat2, m_padded_length, k_padded_length, n_padded_length):
 def _pad_mm_init():
     from .joint_graph import patterns
 
+    counters_ref = counters["inductor"].copy()
+
     if torch.cuda.is_available():
         # workaround https://github.com/pytorch/pytorch/issues/97894
         device = "cuda"
@@ -454,6 +456,6 @@ def _pad_mm_init():
             extra_check=extra_check,
             scalar_workaround=workaround,
         )
-
-    # copy pasta - needed ?
-    counters["inductor"].clear()  # clear view matches encountered during mm tracing
+    counters[
+        "inductor"
+    ] = counters_ref  # clear view matches encountered during mm tracing
