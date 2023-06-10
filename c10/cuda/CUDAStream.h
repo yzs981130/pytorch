@@ -231,7 +231,7 @@ C10_API CUDAStream getDefaultCUDAStream(DeviceIndex device_index = -1);
  * be different if someone called 'setCurrentCUDAStream' or used 'StreamGuard'
  * or 'CUDAStreamGuard'.
  */
-C10_API CUDAStream getCurrentCUDAStream(DeviceIndex device_index = -1);
+extern "C" C10_API CUDAStream getCurrentCUDAStream(DeviceIndex device_index = -1);
 
 /**
  * Set the current stream on the device of the passed in stream to be

@@ -29,6 +29,8 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/profiler/standalone/execution_graph_observer.h>
 #include <torch/csrc/profiler/util.h>
+#include <cuda_runtime_api.h>
+// #include <c10/cuda/CUDAStream.h>
 
 using namespace at;
 
@@ -239,6 +241,10 @@ struct FunctionCallContext : public ObserverContext {
   std::vector<std::string> input_types;
   std::vector<std::string> input_shapes;
   std::vector<std::string> input_values;
+  cudaEvent_t start_event{nullptr};
+  cudaEvent_t end_event{nullptr};
+  float cuda_elapsed_time{0.0f};
+  cudaStream_t stream{nullptr};
 };
 
 // Opens the json file to write the execution graph.
@@ -256,7 +262,7 @@ std::ofstream openOutputFile(const std::string& name) {
 void writeJsonNode(
     std::ofstream& out,
     const std::string& name,
-    const uint64_t id,
+    const uint64_t id,s\4
     const uint64_t rf_id,
     const uint64_t parent,
     const uint64_t fw_parent,
@@ -270,13 +276,14 @@ void writeJsonNode(
     const std::string& outputs = "[]",
     const std::string& output_shapes = "[]",
     const std::string& output_types = "[]",
-    const std::string& operator_schema = "") {
+    const std::string& operator_schema = "",
+    const float elapsed_time = 0.0f) {
   out << fmt::format(
       R"JSON(
     {{
       "name": "{}", "id": {}, "rf_id": {}, "parent": {}, "fw_parent": {}, "seq_id": {}, "scope": {}, "tid": {}, "fw_tid": {}, "op_schema": "{}",
       "inputs": {}, "input_shapes": {}, "input_types": {},
-      "outputs": {}, "output_shapes": {}, "output_types": {}
+      "outputs": {}, "output_shapes": {}, "output_types": {}, "elapsed_time": {}
     }})JSON",
       name,
       id,
@@ -293,7 +300,8 @@ void writeJsonNode(
       input_types,
       outputs,
       output_shapes,
-      output_types);
+      output_types,
+      elapsed_time);
 }
 
 inline std::string timeString(const std::time_t timepoint) {
@@ -468,6 +476,17 @@ void recordOperatorStart(
     auto num_inputs = fn.num_inputs();
     const auto inputs = fn.inputs();
 
+    // init CUDA events
+    cudaEventCreate(&fc.start_event);
+    cudaEventCreate(&fc.end_event);
+    // begin record
+    // cudaEventRecord(fc.start_event, fc.stream);
+    // TODO: use default compute stream for now
+    // torch_nccl_stream = at::cuda::getStreamFromPool();
+    cudaStream_t torch_default_stream = cudaStream_t(at::cuda::getCurrentCUDAStream());
+    fc.stream = torch_default_stream;
+    cudaEventRecord(fc.start_event, fc.stream);
+
     VLOG(2) << "inputs: " << num_inputs << " " << inputs.size() << std::endl;
     // We have two cases: for unboxed kernel, we have num_inputs ==
     // inputs.size() for boxed kernel using stack, there could be more elements
@@ -592,6 +611,13 @@ void onFunctionExit(const RecordFunction& fn, ObserverContext* ctx_ptr) {
         op_schema_str = json_str_escape(c10::toString(op_schema.value()));
       }
 
+      // end record
+      cudaEventRecord(fc.end_event, fc.stream);
+      cudaEventSynchronize(fc.end_event);
+      float milliseconds = 0;
+      cudaEventElapsedTime(&milliseconds, fc.start_event, fc.end_event);
+      fc.cuda_elapsed_time = milliseconds;
+
       writeJsonNode(
           ob->out,
           fc.name,
@@ -609,7 +635,8 @@ void onFunctionExit(const RecordFunction& fn, ObserverContext* ctx_ptr) {
           vectorToString(output_values),
           vectorToString(output_shapes),
           vectorToString(output_types),
-          op_schema_str);
+          op_schema_str,
+          fc.cuda_elapsed_time);
       ob->out << ",";
     } catch (const std::exception& e) {
       LOG(WARNING) << "Exception in execution graph observer: [" << fc.name
