@@ -8,6 +8,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+from argparse import Namespace
 from unittest.mock import MagicMock, patch
 
 import torch.distributed.run as run
@@ -122,6 +123,66 @@ class RunTest(TestCase):
         run.run(args)
         self.assertEqual(args.rdzv_backend, "c10d")
         self.assertEqual(args.rdzv_endpoint, "localhost:0")
+
+    def test_parse_min_max_nnodes_single(self):
+        """Single integer nnodes sets both min and max to the same value."""
+        min_nodes, max_nodes = run.parse_min_max_nnodes("4")
+        self.assertEqual(min_nodes, 4)
+        self.assertEqual(max_nodes, 4)
+
+    def test_parse_min_max_nnodes_range(self):
+        """MIN:MAX format correctly sets min_nodes and max_nodes."""
+        min_nodes, max_nodes = run.parse_min_max_nnodes("2:8")
+        self.assertEqual(min_nodes, 2)
+        self.assertEqual(max_nodes, 8)
+
+    def test_parse_min_max_nnodes_invalid(self):
+        """More than one colon raises a RuntimeError."""
+        with self.assertRaises(RuntimeError):
+            run.parse_min_max_nnodes("1:2:3")
+
+    def test_determine_local_world_size_integer(self):
+        """Numeric string returns the corresponding integer."""
+        self.assertEqual(run.determine_local_world_size("4"), 4)
+
+    def test_determine_local_world_size_cpu(self):
+        """'cpu' returns os.cpu_count()."""
+        self.assertEqual(run.determine_local_world_size("cpu"), os.cpu_count())
+
+    def test_determine_local_world_size_invalid(self):
+        """An unrecognised string raises a ValueError."""
+        with self.assertRaises(ValueError):
+            run.determine_local_world_size("tpu")
+
+    def test_get_rdzv_endpoint_static_no_explicit_endpoint(self):
+        """Static backend without an explicit endpoint builds one from master_addr/port."""
+        args = Namespace(rdzv_backend="static", rdzv_endpoint="", master_addr="1.2.3.4", master_port=1234)
+        self.assertEqual(run.get_rdzv_endpoint(args), "1.2.3.4:1234")
+
+    def test_get_rdzv_endpoint_static_explicit_endpoint(self):
+        """Static backend with an explicit endpoint returns it unchanged."""
+        args = Namespace(rdzv_backend="static", rdzv_endpoint="5.6.7.8:9000", master_addr="1.2.3.4", master_port=1234)
+        self.assertEqual(run.get_rdzv_endpoint(args), "5.6.7.8:9000")
+
+    def test_get_rdzv_endpoint_non_static(self):
+        """Non-static backend returns the rdzv_endpoint regardless of master_addr."""
+        args = Namespace(rdzv_backend="c10d", rdzv_endpoint="host:1234", master_addr="1.2.3.4", master_port=1234)
+        self.assertEqual(run.get_rdzv_endpoint(args), "host:1234")
+
+    def test_get_use_env_absent(self):
+        """Args without a use_env attribute defaults to True."""
+        args = Namespace()
+        self.assertTrue(run.get_use_env(args))
+
+    def test_get_use_env_true(self):
+        """Args with use_env=True returns True."""
+        args = Namespace(use_env=True)
+        self.assertTrue(run.get_use_env(args))
+
+    def test_get_use_env_false(self):
+        """Args with use_env=False returns False."""
+        args = Namespace(use_env=False)
+        self.assertFalse(run.get_use_env(args))
 
 
 if __name__ == "__main__":
